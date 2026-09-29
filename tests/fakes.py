@@ -75,3 +75,62 @@ class FakeSession:
 
 def error_response(status_code=400, message="bad request"):
     return FakeResponse(status_code, {"error": {"message": message, "code": status_code}})
+
+
+# -- queue / tick fakes -----------------------------------------------------
+
+class FakePublisher:
+    """Stand-in platform adapter for queue/tick tests.
+
+    ``publish()`` records every request it receives and either returns a
+    successful PublishResult or raises PublishError, per ``fail``.
+    """
+
+    def __init__(self, name="youtube", fail=False, error="boom: quota exceeded",
+                 url=None):
+        from publish.base import PublishError as _PublishError
+        from publish.models import PublishResult as _PublishResult
+
+        self.name = name
+        self.display_name = name.replace("_", " ").title()
+        self.fail = fail
+        self.error = error
+        self.url = url or f"https://example.com/{name}/vid1"
+        self.published = []       # PublishRequest objects received, in order
+        self.publish_calls = 0
+        self._PublishError = _PublishError
+        self._PublishResult = _PublishResult
+
+    def is_connected(self):
+        return True
+
+    def publish(self, request):
+        self.publish_calls += 1
+        self.published.append(request)
+        if self.fail:
+            raise self._PublishError(self.error)
+        return self._PublishResult.success(self.name, url_or_id=self.url)
+
+
+def make_fake_registry(adapters):
+    """Return a namespace with ``get_adapter(name)`` over ``adapters``.
+
+    ``adapters`` is a dict of name -> adapter instance. Unknown names raise
+    the real ``UnknownPlatformError``, exactly like the production registry.
+    """
+    from publish.registry import UnknownPlatformError
+
+    class _FakeRegistry:
+        def get_adapter(self, name):
+            key = (name or "").strip().lower()
+            if key not in adapters:
+                from publish.registry import list_platforms
+
+                raise UnknownPlatformError(
+                    f"Unknown platform {name!r}. "
+                    f"Valid platforms: {', '.join(sorted(adapters))} "
+                    f"(production: {', '.join(list_platforms())})."
+                )
+            return adapters[key]
+
+    return _FakeRegistry()

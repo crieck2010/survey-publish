@@ -8,11 +8,13 @@ minor (pre-1.0) or major version and are called out in `CHANGELOG.md`.
 ## Import surface
 
 ```python
-from publish import __version__                 # "0.1.0"
+from publish import __version__                 # "0.2.0"
 from publish.models import PublishRequest, PublishResult, Credentials
 from publish.registry import get_adapter, list_platforms, PLATFORMS
 from publish.store import TokenStore
 from publish.base import PlatformAdapter, PublishError, NotConnectedError
+# Queue / scheduling (since 0.2.0):
+from publish import QueuedItem, QueueStore, parse_schedule_time, DEFAULT_SLOTS, tick
 ```
 
 Do not import adapter modules directly (`publish.youtube`, etc.) — resolve
@@ -71,10 +73,11 @@ in embedding code (never log `request`, `Credentials`, or adapter internals).
 
 ## Versioning policy
 
-- **Semver.** `0.1.0` is the first public release.
+- **Semver.** `0.2.0` is the current release (`0.1.0` was the first public release).
 - Within a minor series: `PublishRequest`/`PublishResult` fields,
   `get_adapter`/`list_platforms` signatures, the `PlatformAdapter` abstract
-  surface, and documented `platform_options` keys are **stable**.
+  surface, documented `platform_options` keys, and the `QueuedItem` /
+  `QueueStore` / `tick()` / `parse_schedule_time()` surface are **stable**.
 - New platforms may be added to `PLATFORMS` in a minor release (additive only).
 - Adapter-internal helpers (underscore methods) are **not** part of the
   contract and may change.
@@ -90,6 +93,29 @@ published post is silent. See "Audio policy" in `README.md` and `docs/API.md`.
 
 ## What this engine will not do (by design)
 
-No analytics, no scheduled posting (that's `survey-schedule`'s job calling
-this engine), no comment management, no thumbnail upload, no in-app trending
-sounds (impossible via API — documented in `README.md`).
+No analytics, no comment management, no thumbnail upload, no in-app trending
+sounds (impossible via API — documented in `README.md`). Scheduled posting
+lives *in* this engine since 0.2.0 (`publish.queue`); `survey-schedule`
+orchestrates *what* to schedule, `survey-publish` owns the queue and the
+actual posting.
+
+## Queue contract (for reel-studio / survey-schedule, since 0.2.0)
+
+```python
+from publish import QueuedItem, QueueStore, parse_schedule_time, tick, DEFAULT_SLOTS
+```
+
+- `parse_schedule_time("HH:MM" | "YYYY-MM-DD HH:MM" | ISO-8601)` -> tz-aware
+  local datetime. `"HH:MM"` rolls to tomorrow when the slot already passed.
+- `QueueStore(path=None)` — queue at `~/.survey-publish/queue.json` (0600);
+  pass a path to isolate (tests do this).
+- `enqueue(QueuedItem(...)) -> id`. `scheduled_at` must be ISO-8601 *with*
+  offset; platforms are normalized lowercase/deduped; status forced `queued`.
+- `tick(store, registry=None, now=None) -> {"processed","published","failed"}`.
+  Publishes every due item, per-platform failures recorded on the item, never
+  raises for one item's failure, no auto-retry.
+- The reel-studio UI should surface `DEFAULT_SLOTS` (`["08:30", "12:30",
+  "18:30"]`) as preset buttons plus a free-form time field, and
+  `queue --status failed` items as "needs attention".
+- Honest limits to surface in UI copy: the PC must be on and awake at publish
+  time; times are the PC's local timezone; failed items need manual requeue.

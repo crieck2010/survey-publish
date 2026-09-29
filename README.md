@@ -52,6 +52,16 @@ survey-publish publish-all \
   --title "Gulf Stream this week" \
   --caption "Weekly ocean-current update from satellite data." \
   --hashtags "oceans,surveying,maps"
+
+# 5. Or schedule it for later and let the queue handle it
+survey-publish schedule --video reel.mp4 --title "Gulf Stream this week" \
+  --at "12:30" --platforms youtube,instagram,tiktok \
+  --caption "Weekly ocean-current update." --hashtags "oceans,surveying,maps"
+
+# What's scheduled, then publish everything due (run `tick` every 15 min
+# from Windows Task Scheduler -- see docs/SCHEDULING.md)
+survey-publish queue
+survey-publish tick
 ```
 
 Per-platform options ride on `--opt KEY=VALUE` (repeatable):
@@ -85,9 +95,48 @@ survey-publish publish --platform NAME --video FILE --title TEXT
 survey-publish publish-all --video FILE --title TEXT
     [--caption TEXT] [--hashtags a,b,c] [--opt KEY=VALUE ...]
     [--platforms youtube,tiktok]        Publish to every connected platform
+survey-publish schedule --video FILE --title TEXT --at "12:30"
+    --platforms youtube,tiktok [--caption TEXT] [--hashtags a,b,c]
+    [--date YYYY-MM-DD] [--opt KEY=VALUE ...]
+                                        Schedule for later ("HH:MM" rolls to
+                                        tomorrow if passed; full ISO accepted)
+survey-publish queue [--status queued]  List scheduled items (id, time,
+                                        platforms, status, title)
+survey-publish queue-cancel <id>        Cancel a scheduled item
+                                        (also: survey-publish queue cancel <id>)
+survey-publish queue-reschedule <id> --at "18:30"
+                                        Move a queued item to a new time
+survey-publish tick                     Publish everything due now; quiet
+                                        when empty; run every 15 min from
+                                        Windows Task Scheduler
+                                        (see docs/SCHEDULING.md)
 ```
 
 Exit code `0` on success, `1` on failure; errors print one actionable line to stderr.
+
+## Scheduling
+
+`survey-publish schedule` queues a reel for a local-time slot; `survey-publish
+tick` publishes everything due. Run `tick` every 15 minutes from Windows Task
+Scheduler and scheduled posts go out on their own. Full guide, including the
+`schtasks` one-liner and the honest limits (PC must be ON and AWAKE at publish
+time — sleep misses slots; times are the PC's local timezone; failed items
+need manual requeue, nothing retries silently): `docs/SCHEDULING.md`.
+
+```python
+from publish import QueueStore, QueuedItem, parse_schedule_time, tick
+
+store = QueueStore()  # ~/.survey-publish/queue.json (0600)
+when = parse_schedule_time("12:30")          # next 12:30 local, rolls to tomorrow
+item_id = store.enqueue(QueuedItem(
+    video_path="reel.mp4", title="Gulf Stream this week",
+    caption="Weekly update.", hashtags=["oceans"],
+    platforms=["youtube", "tiktok"],
+    scheduled_at=when.isoformat(),           # ISO-8601 with local offset
+    platform_options={"privacy": "public"},
+))
+summary = tick(store)  # {"processed": n, "published": n, "failed": n}
+```
 
 ## Python API
 
@@ -126,7 +175,9 @@ Platform reality, documented so there are no surprises:
 - **TikTok app review gate**: `publish()` refuses to run until your TikTok developer app has passed the Content Posting API audit/app review. `connect` records your answer; reconnect after approval.
 - **TikTok returns a `publish_id`, not a public URL**: the share URL needs the separate Display API (`video.list` scope), which this engine does not request.
 - **Tokens live on disk** at `~/.survey-publish/tokens.json` (0600). They are never printed or logged. Page tokens are long-lived; YouTube/TikTok tokens refresh automatically.
-- **No analytics, no scheduling, no comments** in v0.1.0 — publishing only.
+- **No analytics, no comments** in v0.2.0 — publishing and scheduling only.
+- **Scheduling needs an awake PC**: `tick` only runs when the machine is on
+  and awake; sleep/hibernate misses slots (see `docs/SCHEDULING.md`).
 
 ## Project layout
 
@@ -136,13 +187,16 @@ src/publish/      Engine (stdlib + requests only)
   base.py         PlatformAdapter ABC + shared OAuth helpers + error types
   registry.py     PLATFORMS dict, get_adapter(), list_platforms()
   store.py        ~/.survey-publish/tokens.json (0600) token store
+  queue.py        ~/.survey-publish/queue.json (0600) schedule queue:
+                  QueuedItem / QueueStore / parse_schedule_time /
+                  DEFAULT_SLOTS / tick()
   youtube.py      YouTube Data API v3 resumable upload
   instagram.py    Instagram Graph API Reels (container -> poll -> publish)
   facebook.py     Facebook Graph API Page video (multipart upload)
   tiktok.py       TikTok Content Posting API Direct Post (FILE_UPLOAD)
   cli.py          `survey-publish` command-line interface
 tests/            pytest suite (all HTTP stubbed; no network, no credentials)
-docs/             Per-platform setup guides + API reference
+docs/             Per-platform setup guides + API reference + SCHEDULING.md
 INTEROP.md        Embedding contract for reel-studio / survey-schedule
 ```
 

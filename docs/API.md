@@ -1,4 +1,4 @@
-# API reference — survey-publish 0.1.0
+# API reference — survey-publish 0.2.0
 
 Python API for embedding the publishing engine (reel-studio, survey-schedule).
 Everything below is importable from the `publish` package. Stdlib + `requests`
@@ -126,6 +126,44 @@ for name in list_platforms():
 ```
 
 (This is exactly what `cli.cmd_publish_all` does.)
+
+## Queue / scheduling (`publish.queue`) — since 0.2.0
+
+```python
+from publish import QueueStore, QueuedItem, parse_schedule_time, tick, DEFAULT_SLOTS
+
+store = QueueStore()                      # ~/.survey-publish/queue.json (0600)
+when = parse_schedule_time("12:30")       # next 12:30 local; rolls to tomorrow
+item_id = store.enqueue(QueuedItem(
+    video_path="reel.mp4",
+    title="Gulf Stream this week",
+    caption="Weekly update.",
+    hashtags=["oceans"],
+    platforms=["youtube", "tiktok"],      # normalized: lowercase, deduped
+    scheduled_at=when.isoformat(),        # ISO-8601 WITH local offset
+    platform_options={"privacy": "public"},
+))
+store.list_queue()                        # oldest-first; status_filter="queued"|...
+store.due_items()                         # queued and scheduled_at <= now
+store.cancel(item_id)                     # queued/failed -> canceled
+store.reschedule(item_id, parse_schedule_time("18:30").isoformat())
+summary = tick(store)                     # publish everything due now
+print(summary)                            # {"processed": 1, "published": 1, "failed": 0}
+```
+
+- `DEFAULT_SLOTS == ["08:30", "12:30", "18:30"]` — preset posting slots
+  (morning/midday/evening scroll windows); custom times always accepted.
+- `tick(store, registry=None, now=None)`: the second argument may be `None`
+  (real registry), a module/namespace with `get_adapter(name)`, or a plain
+  `get_adapter` callable — the seam embedders use to inject fakes in tests.
+  Never raises for one item's failure; no auto-retry.
+- Item statuses: `queued` → `published` | `failed`; `publishing` is a
+  transient double-publish guard set inside `tick()`; `cancel()` accepts
+  `queued`/`failed` (already-canceled is a no-op).
+- On partial failure the item is `failed` but `published_urls` keeps the
+  platforms that succeeded, so a manual requeue can schedule only the
+  platforms that failed.
+- Times are the PC's local timezone, always. Full guide: `docs/SCHEDULING.md`.
 
 ## Audio policy
 

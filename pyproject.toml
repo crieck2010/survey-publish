@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "survey-publish"
-version = "0.1.0"
+version = "0.2.0"
 description = "Deterministic multi-platform publishing engine: upload finished MP4 map reels to YouTube, Instagram, Facebook, and TikTok."
 readme = "README.md"
 license = { text = "MIT" }
