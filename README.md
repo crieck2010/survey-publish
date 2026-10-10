@@ -1,3 +1,7 @@
+> [!IMPORTANT]
+> **This repository has been consolidated into the unified [`earthwatch-suite`](https://github.com/crieck2010/earthwatch-suite) monorepo.**
+> Development, CI, and new features continue at [crieck2010/earthwatch-suite](https://github.com/crieck2010/earthwatch-suite).
+
 # survey-publish
 
 A deterministic, dependency-light **publishing engine** that uploads finished MP4 reels to social platforms: **YouTube**, **Instagram** (Reels), **Facebook** (Page videos), and **TikTok** (Direct Post).
